@@ -1,0 +1,28 @@
+# Cost assumptions for threshold selection.
+#
+# These are illustrative, editable business assumptions -- not measured
+# constants. Every number here should be swapped for a merchant's/gateway's
+# actual finance figures before this system informs a real blocking decision.
+# The dataset's `Amount` field currency is unspecified/anonymized by the
+# dataset authors; we treat it as USD purely as a documented convention.
+
+currency: "USD"
+
+false_negative:
+  # A missed fraud: the transaction amount is lost, plus the card network's
+  # chargeback processing fee charged back to the merchant/acquirer.
+  use_actual_transaction_amount: true
+  flat_chargeback_fee: 15.00
+
+false_positive:
+  # A legitimate transaction wrongly declined.
+  avg_friction_cost: 5.00          # support/investigation cost per false decline
+  lost_revenue_pct_of_amount: 0.02 # assumed merchant margin lost on the declined amount
+  churn_risk_cost: 3.00            # amortized expected cost of customer attrition
+
+true_positive:
+  # A correctly flagged fraud still costs a manual review.
+  investigation_cost: 2.00
+
+true_negative:
+  cost: 0.0

@@ -1,0 +1,30 @@
+# Split ratios are fractions of rows after sorting by Time ascending.
+split:
+  train_frac: 0.60
+  val_frac: 0.20
+  test_frac: 0.20
+  min_test_frauds: 80   # if the tail block has fewer, widen test_frac before touching any model
+
+seed: 42
+
+logistic_baseline:
+  penalty: "l2"
+  C: 1.0
+  max_iter: 1000
+  class_weight: "balanced"
+
+lightgbm_champion:
+  n_estimators: 500
+  learning_rate: 0.05
+  num_leaves: 31
+  max_depth: -1
+  min_child_samples: 20
+  subsample: 0.8
+  colsample_bytree: 0.8
+  reg_alpha: 0.0
+  reg_lambda: 0.0
+  early_stopping_rounds: 50
+  cv_folds: 5
+
+calibration:
+  method: "sigmoid"

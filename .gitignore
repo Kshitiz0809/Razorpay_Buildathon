@@ -1,0 +1,34 @@
+# Data
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Model artifacts (regenerable; keep only metadata)
+models/champion/*
+!models/champion/.gitkeep
+
+# Reports (regenerable)
+reports/figures/*
+!reports/figures/.gitkeep
+reports/*.json
+reports/*.parquet
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Env / secrets
+.env
+kaggle.json
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
