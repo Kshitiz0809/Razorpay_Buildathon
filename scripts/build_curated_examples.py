@@ -35,8 +35,9 @@ def main():
     true_positive = merged[(merged.Class == 1) & (merged.flagged == 1)].nlargest(N_PER_CATEGORY, "champion_score")
     false_positive = merged[(merged.Class == 0) & (merged.flagged == 1)].nlargest(N_PER_CATEGORY, "champion_score")
     false_negative = merged[(merged.Class == 1) & (merged.flagged == 0)].nlargest(N_PER_CATEGORY, "champion_score")
-    true_negative = merged[(merged.Class == 0) & (merged.flagged == 0)].sample(
-        n=min(N_PER_CATEGORY, (merged.flagged == 0).sum()), random_state=42
+    true_negative_pool = merged[(merged.Class == 0) & (merged.flagged == 0)]
+    true_negative = true_negative_pool.sample(
+        n=min(N_PER_CATEGORY, len(true_negative_pool)), random_state=42
     )
     merged["dist_to_threshold"] = (merged.champion_score - threshold).abs()
     borderline = merged.nsmallest(N_PER_CATEGORY, "dist_to_threshold")

@@ -53,6 +53,16 @@ in `reports/evaluation_report.json`.
 5. **Static snapshot.** No concept-drift monitoring or online retraining is
    implemented; a real deployment would need both, since fraud patterns
    shift faster than most other ML problems.
+6. **The VALIDATION block is reused for three sequential purposes**:
+   choosing LightGBM's early-stopping iteration count, fitting the sigmoid
+   calibrator, and selecting the cost-optimal threshold. With only ~500
+   total frauds in the entire dataset, a further split risks starving one
+   of these steps of positive examples entirely. Consequence: the
+   validation-derived cost estimate printed during training is mildly
+   optimistic relative to TEST. This is why `reports/evaluation_report.json`
+   -- computed on TEST, touched exactly once, and never used for any of the
+   three steps above -- is the number that should be quoted, not the
+   validation-time console output.
 
 ## Cost model
 

@@ -3,6 +3,7 @@ import pytest
 
 from fraud_risk.cost.cost_model import (
     total_cost,
+    sweep_thresholds,
     select_optimal_threshold,
     cost_flag_none,
     cost_flag_all,
@@ -59,3 +60,49 @@ def test_optimal_threshold_finds_known_minimum():
     best_t, best_cost, _ = select_optimal_threshold(Y, AMOUNT, SCORES, CFG)
     assert best_cost == pytest.approx(9.0)
     assert best_t == pytest.approx(0.2)
+
+
+def test_sweep_considers_flag_nothing_as_a_candidate():
+    # Regression test: when false-positive/investigation costs dominate
+    # fraud losses, "flag nothing" (threshold=+inf) must be a reachable
+    # candidate -- a sweep restricted to real score values can never select
+    # it, since every real score is < +inf.
+    rng = np.random.default_rng(0)
+    n = 500
+    y = (rng.random(n) < 0.05).astype(int)  # 5% fraud
+    amount = rng.uniform(10, 50, size=n)  # small fraud losses
+    scores = rng.random(n)
+
+    expensive_cfg = {
+        "false_negative": {"flat_chargeback_fee": 5.0},
+        "false_positive": {
+            "avg_friction_cost": 50.0,  # blocking anything is very costly
+            "lost_revenue_pct_of_amount": 0.5,
+            "churn_risk_cost": 50.0,
+        },
+        "true_positive": {"investigation_cost": 40.0},
+        "true_negative": {"cost": 0.0},
+    }
+
+    best_t, best_cost, curve = select_optimal_threshold(y, amount, scores, expensive_cfg)
+    none_cost = cost_flag_none(y, amount, expensive_cfg)
+
+    assert best_t == float("inf")
+    assert best_cost == pytest.approx(none_cost)
+    assert (curve["threshold"] == float("inf")).sum() == 1
+
+
+def test_sweep_matches_naive_total_cost_at_every_candidate_threshold():
+    # Cross-check the vectorized cumulative-sum sweep against the simple,
+    # obviously-correct per-threshold total_cost() for every finite
+    # candidate it produces.
+    rng = np.random.default_rng(1)
+    n = 200
+    y = (rng.random(n) < 0.1).astype(int)
+    amount = rng.uniform(5, 300, size=n)
+    scores = rng.random(n)
+
+    curve = sweep_thresholds(y, amount, scores, CFG)
+    finite = curve[curve["threshold"] != float("inf")]
+    for t, expected_cost in zip(finite["threshold"], finite["total_cost"]):
+        assert total_cost(y, amount, scores, t, CFG) == pytest.approx(expected_cost)

@@ -46,6 +46,15 @@ def main():
     baseline = build_baseline_pipeline(cfg["logistic_baseline"])
     baseline.fit(X_train, y_train)
 
+    # NOTE -- known, disclosed limitation: the VALIDATION block is reused
+    # sequentially for three purposes below (early-stopping's tree count,
+    # calibration, and threshold selection). With only ~500 total frauds in
+    # the whole dataset, splitting further would starve one of these steps of
+    # positive examples. This means the val-derived cost estimate printed
+    # below is mildly optimistic relative to the TEST-set numbers in
+    # reports/evaluation_report.json -- which is exactly why TEST, touched
+    # exactly once and never used for any of these three steps, is the
+    # number that should be quoted, not this one. See MODEL_CARD.md.
     print("Fitting champion (LightGBM, early stopping on val)...")
     champion = fit_champion_pipeline(cfg["lightgbm_champion"], X_train, y_train, X_val, y_val)
 

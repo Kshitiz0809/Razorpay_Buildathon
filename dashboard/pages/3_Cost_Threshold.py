@@ -71,17 +71,28 @@ scores = preds["champion_score"].values
 best_t, best_cost, curve = select_optimal_threshold(y_true, amount, scores, cfg)
 naive_none = cost_flag_none(y_true, amount, cfg)
 naive_all = cost_flag_all(y_true, amount, cfg)
+best_t_is_flag_none = best_t == float("inf")
 
 st.divider()
 col1, col2, col3 = st.columns(3)
-col1.metric("Optimal threshold", f"{best_t:.3f}")
+col1.metric("Optimal threshold", "∞ (flag nothing)" if best_t_is_flag_none else f"{best_t:.3f}")
 col2.metric("Cost at optimal threshold", f"${best_cost:,.2f}")
 col3.metric("Savings vs. flagging nothing", f"${naive_none - best_cost:,.2f}")
 
+if best_t_is_flag_none:
+    st.warning(
+        "Under these assumptions, flagging **nothing** minimizes total cost — "
+        "the false-positive cost outweighs the fraud losses being prevented. "
+        "This is the threshold sweep correctly considering 'do nothing' as a "
+        "candidate policy, not a bug."
+    )
+
 st.subheader("Cost vs. threshold")
+finite_curve = curve[curve["threshold"].apply(lambda t: t != float("inf"))]
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=curve["threshold"], y=curve["total_cost"], mode="lines", name="expected cost"))
-fig.add_vline(x=best_t, line_dash="dash", line_color="red", annotation_text=f"optimal t={best_t:.3f}")
+fig.add_trace(go.Scatter(x=finite_curve["threshold"], y=finite_curve["total_cost"], mode="lines", name="expected cost"))
+if not best_t_is_flag_none:
+    fig.add_vline(x=best_t, line_dash="dash", line_color="red", annotation_text=f"optimal t={best_t:.3f}")
 fig.add_hline(y=naive_none, line_dash="dot", line_color="gray", annotation_text="flag nothing")
 fig.add_hline(y=naive_all, line_dash="dot", line_color="orange", annotation_text="flag everything")
 fig.update_layout(xaxis_title="Threshold", yaxis_title="Total expected cost ($) on TEST", height=450)

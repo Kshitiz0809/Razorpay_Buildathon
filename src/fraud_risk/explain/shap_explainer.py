@@ -7,6 +7,7 @@ attacker a map of exactly which signals to spoof to evade the model, which
 would make this offense-capable and disqualify it under the hackathon's
 defense-only rule.
 """
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -39,7 +40,14 @@ class ShapExplainer:
         )
 
     def _shap_values_for_positive_class(self, transformed: pd.DataFrame) -> np.ndarray:
-        raw = self._tree_explainer.shap_values(transformed)
+        # shap emits a UserWarning on every call here noting its return shape
+        # for binary classifiers "has changed" -- verified empirically that
+        # for our pinned shap/lightgbm versions it returns a plain ndarray
+        # already aligned to the positive class, which the branch below
+        # handles; the warning is pure log noise at this pinned version.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            raw = self._tree_explainer.shap_values(transformed)
         # Older shap versions return [class0_values, class1_values] for binary
         # classifiers; newer versions return a single array already aligned
         # to the positive class. Handle both.
@@ -62,7 +70,13 @@ class ShapExplainer:
                         feature_name=CHAMPION_COLUMNS[j],
                         shap_value=float(row_values[j]),
                         feature_value=float(row_features.iloc[j]),
-                        direction="increases_risk" if row_values[j] > 0 else "decreases_risk",
+                        direction=(
+                            "increases_risk"
+                            if row_values[j] > 0
+                            else "decreases_risk"
+                            if row_values[j] < 0
+                            else "neutral"
+                        ),
                     )
                     for j in order
                 ]

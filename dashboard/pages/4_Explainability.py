@@ -40,7 +40,7 @@ st.subheader("Why this decision?")
 contributors = example["top_contributors"]
 names = [c["feature_name"] for c in contributors]
 values = [c["shap_value"] for c in contributors]
-colors = ["#C44E52" if v > 0 else "#4C72B0" for v in values]
+colors = ["#C44E52" if v > 0 else "#4C72B0" if v < 0 else "#999999" for v in values]
 
 fig = go.Figure(
     go.Bar(
@@ -60,7 +60,9 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 top = contributors[0]
-direction_word = "increased" if top["direction"] == "increases_risk" else "decreased"
+direction_word = {"increases_risk": "increased", "decreases_risk": "decreased", "neutral": "had no effect on"}[
+    top["direction"]
+]
 st.markdown(
     f"**Primary driver:** `{top['feature_name']}` = {top['feature_value']:.3f} most strongly "
     f"{direction_word} this transaction's fraud risk."

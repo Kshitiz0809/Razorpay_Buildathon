@@ -17,11 +17,14 @@ require_artifacts("test_predictions.parquet", "evaluation_report.json")
 preds = load_test_predictions()
 report = load_evaluation_report()
 default_threshold = report["champion"]["threshold"]
+# The deployed threshold can legitimately be +inf ("flag nothing" was
+# cost-optimal on validation) -- the slider is bounded to [0, 1], so clamp
+# only the slider's starting position, not the true stored value shown below.
+slider_default = min(float(default_threshold), 1.0)
 
-threshold = st.slider(
-    "Decision threshold", 0.0, 1.0, value=float(default_threshold), step=0.001, format="%.3f"
-)
-st.caption(f"Cost-optimal threshold selected on validation: **{default_threshold:.3f}**")
+threshold = st.slider("Decision threshold", 0.0, 1.0, value=slider_default, step=0.001, format="%.3f")
+threshold_label = "∞ (flag nothing)" if default_threshold == float("inf") else f"{default_threshold:.3f}"
+st.caption(f"Cost-optimal threshold selected on validation: **{threshold_label}**")
 
 y_true = preds["Class"].values
 scores = preds["champion_score"].values

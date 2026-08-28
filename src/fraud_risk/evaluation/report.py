@@ -100,9 +100,11 @@ def _write_figures(y_test, scores, amount, threshold, cost_cfg, metrics):
     plt.close(fig)
 
     curve = sweep_thresholds(y_test, amount, scores, cost_cfg)
+    finite_curve = curve[curve["threshold"] != float("inf")]
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(curve["threshold"], curve["total_cost"])
-    ax.axvline(threshold, color="red", linestyle="--", label=f"selected t={threshold:.3f}")
+    ax.plot(finite_curve["threshold"], finite_curve["total_cost"])
+    if threshold != float("inf"):
+        ax.axvline(threshold, color="red", linestyle="--", label=f"selected t={threshold:.3f}")
     ax.set_xlabel("Threshold")
     ax.set_ylabel("Total expected cost ($)")
     ax.set_title("Cost vs. threshold (TEST)")

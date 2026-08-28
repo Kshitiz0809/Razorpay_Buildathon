@@ -68,4 +68,4 @@ def test_explain_returns_top_contributors(client):
     body = resp.json()
     assert 1 <= len(body["top_contributors"]) <= 6
     for c in body["top_contributors"]:
-        assert c["direction"] in {"increases_risk", "decreases_risk"}
+        assert c["direction"] in {"increases_risk", "decreases_risk", "neutral"}
