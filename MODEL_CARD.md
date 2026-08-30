@@ -1,5 +1,15 @@
 # Model Card — Fraud Risk Scorer (champion)
 
+> **Scope note:** this card covers the calibrated LightGBM model trained on
+> the Kaggle benchmark dataset. The separate heuristic risk engine in
+> `src/fraud_risk/razorpay_integration/risk_rules.py`, used against live
+> Razorpay test-mode data, is **not** a trained model and has no
+> precision/recall to report — there is no labeled outcome history for a
+> freshly-connected payment stream to measure against. It's a deliberately
+> transparent, non-ML rule engine; see README.md's "Live Razorpay
+> integration" section for why, and don't conflate its risk scores with the
+> metrics below.
+
 ## Overview
 
 - **Task:** binary classification — is a card transaction fraudulent?

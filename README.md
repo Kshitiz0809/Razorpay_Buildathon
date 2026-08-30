@@ -13,12 +13,52 @@ cost; strictly defense-only.
 
 ## What this is
 
-A transaction-level fraud classifier trained on the Kaggle [Credit Card
-Fraud Detection](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud)
-dataset (284,807 real anonymized card transactions, 492 frauds), served via
-a FastAPI scoring/explanation API and a Streamlit dashboard for live
-demonstration. See `data/README.md` for dataset provenance and
-`MODEL_CARD.md` for scope, limitations, and the generalization caveat.
+Two things, deliberately built as a matched pair:
+
+1. **A calibrated fraud classifier**, trained and rigorously evaluated on
+   the Kaggle [Credit Card Fraud Detection](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud)
+   dataset (284,807 real anonymized card transactions, 492 frauds) — see
+   `data/README.md` for provenance and `MODEL_CARD.md` for scope and
+   limitations.
+2. **A live integration against Razorpay's own Test Mode API** — not a
+   simulation of Razorpay, an actual authenticated client of it, using
+   Razorpay's real Orders API and implementing Razorpay's real webhook
+   HMAC-SHA256 signature scheme for a payment-risk gate. See "Live Razorpay
+   integration" below.
+
+Both are served through the same FastAPI backend and the same Streamlit
+dashboard.
+
+## Live Razorpay integration
+
+Real Razorpay accounts have no fraud-labeled outcome history on day one —
+you can't calibrate a supervised model against chargebacks that haven't
+happened yet. So this project demonstrates the two-stage strategy a real
+risk team actually ships:
+
+- **Stage 1 — live now, in `src/fraud_risk/razorpay_integration/`.** A
+  transparent, config-driven heuristic risk gate (`configs/razorpay_risk_rules.yaml`)
+  wired to Razorpay's real API: `client.py` authenticates with real test
+  credentials against the real Orders API (verified live — see
+  `CHALLENGES.md`); `webhook.py` implements Razorpay's actual
+  HMAC-SHA256 `X-Razorpay-Signature` verification; the `/webhook/razorpay/payment`
+  endpoint is exactly what a production integration would register with
+  Razorpay. Because Razorpay deliberately keeps payment completion
+  client-side only (PCI-DSS scope reduction — no backend can finish a
+  payment alone), the risk-scoring path is exercised with signed events
+  shaped exactly like Razorpay's real `payment.authorized` webhook
+  (`scripts/simulate_razorpay_webhook.py`, also live in the dashboard's
+  **Razorpay Live** page) — same schema, same signature algorithm, only the
+  sender differs from a real production deployment.
+- **Stage 2 — the calibrated model above**, ready to retrain the moment
+  labeled outcomes exist for a real payment stream, using the exact
+  leakage-safe, cost-aware, explainable methodology already proven on the
+  benchmark dataset.
+
+Dashboard: [Razorpay Live](dashboard/pages/5_Razorpay_Live.py) shows real
+fetched test-mode orders and lets you fire simulated payment events at the
+live risk gate, including a velocity-abuse demo (repeat the same payer to
+watch the rule trigger statefully in real time).
 
 ## Why the numbers here are trustworthy, not just high
 
@@ -75,24 +115,35 @@ and PR / calibration / cost curves once trained.
                                  │
                  ┌───────────────┴───────────────┐
                  ▼                                 ▼
-     ┌───────────────────────┐         ┌───────────────────────────┐
-     │  api/  (FastAPI)        │◄───────│  dashboard/ (Streamlit)     │
-     │  /health  /score  /explain│ HTTP  │  Live Stream, Performance,  │
-     │  X-API-Key gated          │       │  Cost/Threshold, Explain    │
-     └───────────────────────┘         └───────────────────────────┘
+     ┌─────────────────────────────┐     ┌───────────────────────────┐
+     │  api/  (FastAPI)              │◄────│  dashboard/ (Streamlit)     │
+     │  /health  /score  /explain    │ HTTP │  Live Stream, Performance,  │
+     │  /webhook/razorpay/payment    │     │  Cost/Threshold, Explain,   │
+     │  /razorpay/recent-orders      │     │  Razorpay Live              │
+     │  X-API-Key gated (webhook:    │     └───────────────────────────┘
+     │  Razorpay HMAC signature)     │
+     └───────────────┬───────────────┘
+                      │ HTTPS, Basic Auth (real test credentials)
+                      ▼
+          ┌─────────────────────────┐
+          │  api.razorpay.com (real)  │
+          │  Orders API                │
+          └─────────────────────────┘
 ```
 
 ## Project structure
 
 ```
-src/fraud_risk/       Core package: data, features, models, cost, evaluation, explain
-configs/               train_config.yaml, cost_config.yaml (all $ assumptions live here)
-api/                   FastAPI service (main, schemas, auth, dependencies)
-dashboard/             Streamlit multipage app
-scripts/                eda.py, download_data.ps1, run_pipeline.ps1, benchmark_latency.py, build_curated_examples.py
-tests/                  pytest suite (schema, leakage, cost model, feature engineering, API contract)
-reports/                Generated: evaluation_report.json, figures/, test_predictions.parquet, curated_examples.json
-models/champion/        Generated: serialized model bundle + metadata (gitignored except structure)
+src/fraud_risk/                Core package: data, features, models, cost, evaluation, explain
+src/fraud_risk/razorpay_integration/  Live Razorpay client, webhook signature verification, heuristic risk engine
+configs/                        train_config.yaml, cost_config.yaml, razorpay_risk_rules.yaml (all assumptions live here)
+api/                            FastAPI service (main, schemas, auth, dependencies, razorpay_router)
+dashboard/                      Streamlit multipage app (incl. Razorpay Live page)
+scripts/                        eda.py, download_data.ps1, run_pipeline.ps1, benchmark_latency.py,
+                                 build_curated_examples.py, simulate_razorpay_webhook.py, seed_razorpay_test_orders.py
+tests/                          pytest suite (schema, leakage, cost model, feature engineering, API contract, Razorpay integration)
+reports/                        Generated: evaluation_report.json, figures/, test_predictions.parquet, curated_examples.json
+models/champion/                Generated: serialized model bundle + metadata (gitignored except structure)
 ```
 
 ## Setup
@@ -131,12 +182,30 @@ explainability examples, and runs the test suite.
 
 Interactive docs at `http://localhost:8000/docs`. `/score` and `/explain`
 require the `X-API-Key` header — set in `.env` (copy `.env.example` first).
+The API starts even without a trained model (`/score`/`/explain` return 503
+until then); the Razorpay endpoints work independently and don't need one.
 
 ### 5. Run the dashboard
 
 ```
 .venv\Scripts\streamlit run dashboard/app.py
 ```
+
+### Razorpay integration (optional)
+
+Set `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` (from a **test-mode**
+Razorpay account — `key_id` must start with `rzp_test_`; the client refuses
+to write against anything else) and `RAZORPAY_WEBHOOK_SECRET` (any string —
+mirrors the secret you'd configure in the Razorpay Dashboard under
+Settings > Webhooks) in `.env`. Then, with the API running:
+
+```
+python scripts/seed_razorpay_test_orders.py              # creates 3 real orders in your test account
+python scripts/simulate_razorpay_webhook.py --profile high_risk
+python scripts/simulate_razorpay_webhook.py --profile normal --repeat 5   # triggers the velocity rule
+```
+
+Or drive it interactively from the dashboard's **Razorpay Live** page.
 
 ### 6. Docker (optional, for one-command reproducibility)
 
@@ -155,8 +224,11 @@ never requires an image rebuild.
 ```
 
 Schema validation, split-leakage assertions, cost-model correctness against
-hand-computed values, feature-engineering correctness, and FastAPI contract
-tests (the API tests auto-skip until a model has been trained).
+hand-computed values, feature-engineering correctness, the Razorpay
+heuristic risk engine and webhook signature verification (pure logic, no
+network calls), and FastAPI contract tests (`/score`/`/explain` auto-skip
+until a model has been trained; `/health` and the Razorpay webhook run
+regardless, since they don't depend on the trained model).
 
 ## Defense-only scope
 
@@ -165,4 +237,8 @@ does **not** expose: global feature importances, training data, raw model
 internals, or an unauthenticated scoring oracle — `/score` and `/explain`
 require an API key, and `/explain` returns only the top-6 contributing
 features for the specific transaction scored, never the full feature vector
-or model weights. See `MODEL_CARD.md` for the full scope statement.
+or model weights. The Razorpay webhook endpoint's authentication is the
+HMAC signature itself (exactly how Razorpay's own servers would call it —
+they never send our internal API key), verified against the raw request
+body before anything else runs. See `MODEL_CARD.md` for the full scope
+statement.

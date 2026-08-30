@@ -1,0 +1,45 @@
+# Heuristic weights for the live Razorpay payment risk gate.
+#
+# This is a Stage-1 "cold start" rule engine for a payment stream with no
+# labeled fraud/chargeback outcomes yet -- unlike configs/cost_config.yaml
+# (which feeds a model calibrated and measured against labeled data), these
+# weights are illustrative starting points based on well-documented
+# industry fraud signals, not fitted to any ground truth. Swap in real
+# weights once labeled outcomes accumulate for this payment stream -- see
+# README.md for the two-stage bootstrap-to-ML strategy this implements.
+
+currency_minor_unit_divisor: 100  # Razorpay reports INR amounts in paise
+
+amount:
+  high_amount_threshold: 50000        # INR
+  high_amount_points: 25
+  very_high_amount_threshold: 200000  # INR
+  very_high_amount_points: 40
+
+international_card:
+  points: 20
+
+velocity:
+  window_seconds: 600
+  max_attempts_before_flag: 3
+  points: 30
+
+new_payer:
+  amount_threshold: 20000   # INR
+  points: 15
+
+method_risk_points:
+  card: 5
+  netbanking: 3
+  wallet: 8
+  upi: 2
+  emi: 5
+
+odd_hour:
+  start_hour_ist: 1
+  end_hour_ist: 5
+  points: 10
+
+decision_thresholds:
+  medium: 30
+  high: 55

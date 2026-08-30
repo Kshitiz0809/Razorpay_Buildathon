@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
+
+
+class _APIModel(BaseModel):
+    # "model_version" is a deliberate, public field name; pydantic reserves
+    # the "model_" prefix for its own internals by default and warns on any
+    # collision, so opt out of that protection for this API's schemas.
+    model_config = ConfigDict(protected_namespaces=())
+
 
 # v1..v28 generated to avoid 28 hand-typed near-identical lines, but the
 # resulting model still exposes explicit named fields (not a bare list) in
@@ -17,7 +25,7 @@ class _TransactionBase(BaseModel):
 TransactionIn = create_model("TransactionIn", __base__=_TransactionBase, **_V_FIELDS)
 
 
-class ScoreOut(BaseModel):
+class ScoreOut(_APIModel):
     transaction_id: str | None
     fraud_probability: float
     is_flagged: bool
@@ -37,6 +45,6 @@ class ExplainOut(ScoreOut):
     top_contributors: list[FeatureContribution]
 
 
-class HealthOut(BaseModel):
+class HealthOut(_APIModel):
     status: str
     model_version: str
