@@ -13,21 +13,27 @@ cost; strictly defense-only.
 
 ## What this is
 
-Two things, deliberately built as a matched pair:
+Three of the hackathon brief's four example directions, built as one
+coherent system rather than three disconnected demos:
 
-1. **A calibrated fraud classifier**, trained and rigorously evaluated on
-   the Kaggle [Credit Card Fraud Detection](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud)
+1. **Fraud-spike detector** — a calibrated LightGBM classifier, trained and
+   rigorously evaluated on the Kaggle [Credit Card Fraud Detection](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud)
    dataset (284,807 real anonymized card transactions, 492 frauds) — see
    `data/README.md` for provenance and `MODEL_CARD.md` for scope and
    limitations.
-2. **A live integration against Razorpay's own Test Mode API** — not a
-   simulation of Razorpay, an actual authenticated client of it, using
-   Razorpay's real Orders API and implementing Razorpay's real webhook
-   HMAC-SHA256 signature scheme for a payment-risk gate. See "Live Razorpay
-   integration" below.
+2. **Abuse-ring sentinel** — a live integration against Razorpay's own Test
+   Mode API (not a simulation of Razorpay, an actual authenticated client
+   of it), with velocity and card/IP-fingerprint-reuse rules purpose-built
+   to catch coordinated identity abuse that no single transaction reveals.
+   See "Live Razorpay integration" below.
+3. **Chargeback evidence responder** — drafts a dispute letter from the
+   exact same per-transaction SHAP explanation the fraud classifier already
+   produces, guarded so it only ever assists disputes for transactions the
+   system itself scored as legitimate. See "Chargeback evidence responder"
+   below.
 
-Both are served through the same FastAPI backend and the same Streamlit
-dashboard.
+All three are served through the same FastAPI backend and the same
+Streamlit dashboard — one system, not three demos stitched together.
 
 ## Live Razorpay integration
 
@@ -55,10 +61,47 @@ risk team actually ships:
   leakage-safe, cost-aware, explainable methodology already proven on the
   benchmark dataset.
 
+**Abuse-ring rules, not just single-transaction rules:** beyond per-payer
+velocity, the engine tracks IP-address velocity across *distinct* payers
+and card-fingerprint (last4+network+issuer — Razorpay never exposes the
+full PAN/BIN) reuse across *distinct* payers — the actual signature of a
+ring probing with one device/card against many synthetic identities, which
+no single transaction's amount or method can reveal on its own. IP address
+is read from the payment's `notes` field, a real Razorpay-supported
+merchant-metadata mechanism (not a standard payment field).
+
 Dashboard: [Razorpay Live](dashboard/pages/5_Razorpay_Live.py) shows real
 fetched test-mode orders and lets you fire simulated payment events at the
-live risk gate, including a velocity-abuse demo (repeat the same payer to
-watch the rule trigger statefully in real time).
+live risk gate, including a velocity-abuse demo (repeat the same payer) and
+an abuse-ring demo (N distinct payers sharing one IP + card, watch the risk
+score escalate statefully in real time).
+
+## Chargeback evidence responder
+
+`POST /chargeback/draft-response` (`src/fraud_risk/chargeback/responder.py`,
+dashboard's [Chargeback Responder](dashboard/pages/6_Chargeback_Responder.py)
+page) takes a transaction and drafts a chargeback dispute letter from the
+exact same per-transaction SHAP explanation the Explainability page
+already computes — one explainability output feeding two features, not a
+second disconnected one.
+
+**The guard that makes this defense-only, not just labeled that way:** the
+endpoint re-scores the transaction itself first, and refuses outright if
+the fraud model scored it at or above the flagging threshold —
+
+```
+Refusing to draft a dispute letter: this transaction was scored as
+high-risk by our own fraud model... This tool only assists disputes for
+transactions the system itself believes are legitimate.
+```
+
+This is the real "friendly fraud" use case (a legitimate transaction the
+cardholder later disputes) — drafting a defense for a transaction the
+system itself flagged as fraud would mean helping evade detection, which
+this project will not do. The Chargeback Responder page lets you pick a
+"correctly flagged fraud" example specifically to watch this refusal fire.
+Text generation runs on Groq (`openai/gpt-oss-120b`); nothing here
+auto-submits a dispute — it's a drafting aid for a human to review.
 
 ## Why the numbers here are trustworthy, not just high
 
@@ -115,20 +158,21 @@ and PR / calibration / cost curves once trained.
                                  │
                  ┌───────────────┴───────────────┐
                  ▼                                 ▼
-     ┌─────────────────────────────┐     ┌───────────────────────────┐
-     │  api/  (FastAPI)              │◄────│  dashboard/ (Streamlit)     │
-     │  /health  /score  /explain    │ HTTP │  Live Stream, Performance,  │
-     │  /webhook/razorpay/payment    │     │  Cost/Threshold, Explain,   │
-     │  /razorpay/recent-orders      │     │  Razorpay Live              │
-     │  X-API-Key gated (webhook:    │     └───────────────────────────┘
-     │  Razorpay HMAC signature)     │
-     └───────────────┬───────────────┘
-                      │ HTTPS, Basic Auth (real test credentials)
-                      ▼
-          ┌─────────────────────────┐
-          │  api.razorpay.com (real)  │
-          │  Orders API                │
-          └─────────────────────────┘
+     ┌─────────────────────────────────┐  ┌───────────────────────────────┐
+     │  api/  (FastAPI)                   │◄──│  dashboard/ (Streamlit)         │
+     │  /health  /score  /explain         │HTTP│  Live Stream, Performance,      │
+     │  /chargeback/draft-response        │  │  Cost/Threshold, Explain,        │
+     │  /webhook/razorpay/payment         │  │  Razorpay Live, Chargeback       │
+     │  /razorpay/recent-orders           │  │  Responder                       │
+     │  X-API-Key + rate limits (webhook: │  └───────────────────────────────┘
+     │  Razorpay HMAC signature instead)  │
+     └───────┬─────────────────────┬───────┘
+             │ Basic Auth            │ chat completions
+             ▼                       ▼
+  ┌─────────────────────┐  ┌─────────────────────┐
+  │ api.razorpay.com     │  │ api.groq.com (real)   │
+  │ (real) Orders API    │  │ openai/gpt-oss-120b    │
+  └─────────────────────┘  └─────────────────────┘
 ```
 
 ## Project structure
@@ -136,12 +180,14 @@ and PR / calibration / cost curves once trained.
 ```
 src/fraud_risk/                Core package: data, features, models, cost, evaluation, explain
 src/fraud_risk/razorpay_integration/  Live Razorpay client, webhook signature verification, heuristic risk engine
+src/fraud_risk/chargeback/     Groq-backed chargeback dispute letter drafter
 configs/                        train_config.yaml, cost_config.yaml, razorpay_risk_rules.yaml (all assumptions live here)
-api/                            FastAPI service (main, schemas, auth, dependencies, razorpay_router)
-dashboard/                      Streamlit multipage app (incl. Razorpay Live page)
+api/                            FastAPI service (main, schemas, auth, rate_limit, dependencies, razorpay_router)
+dashboard/                      Streamlit multipage app (incl. Razorpay Live, Chargeback Responder pages)
 scripts/                        eda.py, download_data.ps1, run_pipeline.ps1, benchmark_latency.py,
                                  build_curated_examples.py, simulate_razorpay_webhook.py, seed_razorpay_test_orders.py
-tests/                          pytest suite (schema, leakage, cost model, feature engineering, API contract, Razorpay integration)
+tests/                          pytest suite (schema, leakage, cost model, feature engineering, API contract,
+                                 Razorpay integration, rate limiting, chargeback safety guard)
 reports/                        Generated: evaluation_report.json, figures/, test_predictions.parquet, curated_examples.json
 models/champion/                Generated: serialized model bundle + metadata (gitignored except structure)
 ```
@@ -203,9 +249,30 @@ Settings > Webhooks) in `.env`. Then, with the API running:
 python scripts/seed_razorpay_test_orders.py              # creates 3 real orders in your test account
 python scripts/simulate_razorpay_webhook.py --profile high_risk
 python scripts/simulate_razorpay_webhook.py --profile normal --repeat 5   # triggers the velocity rule
+python scripts/simulate_razorpay_webhook.py --ring 4                       # triggers the abuse-ring rules
 ```
 
 Or drive it interactively from the dashboard's **Razorpay Live** page.
+
+### Chargeback evidence responder (optional, needs a trained model)
+
+Set `GROQ_API_KEY` (free at [console.groq.com](https://console.groq.com)) in
+`.env`. Once the model is trained (step 3), use the dashboard's
+**Chargeback Responder** page, or call the endpoint directly:
+
+```
+POST /chargeback/draft-response
+{
+  "transaction": { "transaction_id": "...", "time": 1000.0, "amount": 89.99, "v1": ..., ... "v28": ... },
+  "currency": "USD",
+  "transaction_date": "2026-08-15",
+  "merchant_name": "Acme Retail Pvt Ltd"
+}
+```
+
+Returns `400` if the fraud model itself scored the transaction above its
+flagging threshold — the endpoint refuses to draft a defense for a
+transaction it believes is fraud, by design.
 
 ### 6. Docker (optional, for one-command reproducibility)
 
@@ -225,20 +292,27 @@ never requires an image rebuild.
 
 Schema validation, split-leakage assertions, cost-model correctness against
 hand-computed values, feature-engineering correctness, the Razorpay
-heuristic risk engine and webhook signature verification (pure logic, no
-network calls), and FastAPI contract tests (`/score`/`/explain` auto-skip
-until a model has been trained; `/health` and the Razorpay webhook run
-regardless, since they don't depend on the trained model).
+heuristic risk engine (including abuse-ring rules) and webhook signature
+verification (pure logic, no network calls), the rate limiter, the
+chargeback-responder safety guard (mocked model, no real LLM call), and
+FastAPI contract tests (`/score`/`/explain` auto-skip until a model has
+been trained; `/health` and the Razorpay webhook run regardless, since they
+don't depend on the trained model).
 
 ## Defense-only scope
 
 This system scores and explains individual transactions. It deliberately
 does **not** expose: global feature importances, training data, raw model
-internals, or an unauthenticated scoring oracle — `/score` and `/explain`
-require an API key, and `/explain` returns only the top-6 contributing
-features for the specific transaction scored, never the full feature vector
-or model weights. The Razorpay webhook endpoint's authentication is the
-HMAC signature itself (exactly how Razorpay's own servers would call it —
-they never send our internal API key), verified against the raw request
-body before anything else runs. See `MODEL_CARD.md` for the full scope
-statement.
+internals, or an unauthenticated scoring oracle — `/score`, `/explain`, and
+`/chargeback/draft-response` require an API key, are rate-limited per key
+(`api/rate_limit.py`; 120/min, 20/min, 10/min respectively, in-memory —
+specifically so `/explain` can't be hammered at scale to probe the model's
+decision boundary), and `/explain` returns only the top-6 contributing
+features for the specific transaction scored, never the full feature
+vector or model weights. `/chargeback/draft-response` additionally
+re-scores the transaction and refuses outright for anything above the
+flagging threshold — see "Chargeback evidence responder" above. The
+Razorpay webhook endpoint's authentication is the HMAC signature itself
+(exactly how Razorpay's own servers would call it — they never send our
+internal API key), verified against the raw request body before anything
+else runs. See `MODEL_CARD.md` for the full scope statement.

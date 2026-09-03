@@ -58,6 +58,12 @@ def main():
         for _, row in rows.iterrows():
             raw_row = row[FEATURE_COLUMNS].to_frame().T
             contributions = explainer.explain_one(raw_row)
+            # Full raw feature vector, shaped exactly like the API's
+            # TransactionIn schema, so the dashboard can replay this exact
+            # transaction through /score, /explain, or
+            # /chargeback/draft-response without any translation.
+            raw_features = {"time": float(row["Time"]), "amount": float(row["Amount"])}
+            raw_features.update({f"v{i}": float(row[f"V{i}"]) for i in range(1, 29)})
             examples.append(
                 {
                     "transaction_id": row["transaction_id"],
@@ -68,6 +74,7 @@ def main():
                     "amount": float(row["Amount"]),
                     "threshold": float(threshold),
                     "top_contributors": [asdict(c) for c in contributions],
+                    "raw_features": raw_features,
                 }
             )
 

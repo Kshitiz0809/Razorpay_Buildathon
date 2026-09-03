@@ -48,3 +48,18 @@ class ExplainOut(ScoreOut):
 class HealthOut(_APIModel):
     status: str
     model_version: str
+
+
+class ChargebackDraftIn(BaseModel):
+    transaction: TransactionIn
+    currency: str = "USD"
+    transaction_date: str = Field(..., description="Human-readable date to reference in the letter, e.g. '2026-08-15'")
+    merchant_name: str = "the merchant"
+
+
+class ChargebackDraftOut(_APIModel):
+    transaction_id: str | None
+    fraud_probability: float
+    threshold_used: float
+    letter: str
+    model_version: str

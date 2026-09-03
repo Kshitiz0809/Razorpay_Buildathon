@@ -8,7 +8,11 @@
 > freshly-connected payment stream to measure against. It's a deliberately
 > transparent, non-ML rule engine; see README.md's "Live Razorpay
 > integration" section for why, and don't conflate its risk scores with the
-> metrics below.
+> metrics below. Likewise, `src/fraud_risk/chargeback/responder.py` (an
+> LLM text-drafting tool, not a classifier) has no accuracy metric of its
+> own -- its only correctness property is the safety guard in
+> `api/main.py` that refuses to run on any transaction this model scores
+> above the flagging threshold.
 
 ## Overview
 

@@ -65,3 +65,52 @@ def build_payload(profile: dict) -> dict:
         "payload": {"payment": {"entity": payment}},
         "created_at": int(time.time()),
     }
+
+
+RING_PROFILE = dict(
+    amount=180000,  # paise -> INR 1,800
+    hour_ist=14,
+    ip_address="203.0.113.7",
+    card_last4="4242",
+    card_network="Visa",
+    card_issuer="HDFC Bank",
+)
+
+
+def build_ring_event(index: int) -> dict:
+    """Same IP + same card fingerprint, a fresh email each call -- the
+    classic shape of an abuse ring probing with one device/card against
+    many synthetic identities, which no single-transaction rule can see.
+    """
+    profile = RING_PROFILE
+    now_ist = datetime.now(IST).replace(hour=profile["hour_ist"], minute=0, second=0, microsecond=0)
+    created_at = int(now_ist.timestamp())
+
+    payment = {
+        "id": f"pay_sim_{uuid.uuid4().hex[:14]}",
+        "entity": "payment",
+        "amount": profile["amount"],
+        "currency": "INR",
+        "status": "authorized",
+        "method": "card",
+        "captured": False,
+        "email": f"ring.buyer{index}@example.com",
+        "contact": f"+9199900{index:05d}",
+        "created_at": created_at,
+        "notes": {"ip_address": profile["ip_address"]},
+        "card": {
+            "network": profile["card_network"],
+            "type": "credit",
+            "international": False,
+            "last4": profile["card_last4"],
+            "issuer": profile["card_issuer"],
+        },
+    }
+
+    return {
+        "entity": "event",
+        "event": "payment.authorized",
+        "contains": ["payment"],
+        "payload": {"payment": {"entity": payment}},
+        "created_at": int(time.time()),
+    }

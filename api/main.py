@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 
 from fraud_risk.artifacts import load_champion, load_metadata, load_threshold
+from fraud_risk.chargeback.responder import draft_dispute_letter
 from fraud_risk.config import CONFIGS_DIR, load_yaml
 from fraud_risk.explain.shap_explainer import ShapExplainer
 from fraud_risk.razorpay_integration.risk_rules import PaymentRiskEngine
@@ -22,7 +23,16 @@ from fraud_risk.razorpay_integration.risk_rules import PaymentRiskEngine
 from api import razorpay_router
 from api.auth import require_api_key
 from api.dependencies import transaction_to_dataframe
-from api.schemas import ExplainOut, FeatureContribution, HealthOut, ScoreOut, TransactionIn
+from api.rate_limit import rate_limit_chargeback, rate_limit_explain, rate_limit_score
+from api.schemas import (
+    ChargebackDraftIn,
+    ChargebackDraftOut,
+    ExplainOut,
+    FeatureContribution,
+    HealthOut,
+    ScoreOut,
+    TransactionIn,
+)
 
 load_dotenv()
 
@@ -74,7 +84,11 @@ def health(request: Request) -> HealthOut:
     return HealthOut(status="ok", model_version=request.app.state.metadata["model_version"])
 
 
-@app.post("/score", response_model=ScoreOut, dependencies=[Depends(require_api_key)])
+@app.post(
+    "/score",
+    response_model=ScoreOut,
+    dependencies=[Depends(require_api_key), Depends(rate_limit_score)],
+)
 def score(txn: TransactionIn, request: Request) -> ScoreOut:
     _require_model_loaded(request)
     state = request.app.state
@@ -90,7 +104,11 @@ def score(txn: TransactionIn, request: Request) -> ScoreOut:
     )
 
 
-@app.post("/explain", response_model=ExplainOut, dependencies=[Depends(require_api_key)])
+@app.post(
+    "/explain",
+    response_model=ExplainOut,
+    dependencies=[Depends(require_api_key), Depends(rate_limit_explain)],
+)
 def explain(txn: TransactionIn, request: Request) -> ExplainOut:
     _require_model_loaded(request)
     state = request.app.state
@@ -105,4 +123,44 @@ def explain(txn: TransactionIn, request: Request) -> ExplainOut:
         model_version=state.metadata["model_version"],
         scored_at=datetime.now(timezone.utc),
         top_contributors=[FeatureContribution(**vars(c)) for c in contributions],
+    )
+
+
+@app.post(
+    "/chargeback/draft-response",
+    response_model=ChargebackDraftOut,
+    dependencies=[Depends(require_api_key), Depends(rate_limit_chargeback)],
+)
+def chargeback_draft_response(payload: ChargebackDraftIn, request: Request) -> ChargebackDraftOut:
+    _require_model_loaded(request)
+    state = request.app.state
+    df = transaction_to_dataframe(payload.transaction)
+    proba = float(state.champion.predict_proba(df)[0, 1])
+
+    if proba >= state.threshold:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Refusing to draft a dispute letter: this transaction was scored as high-risk "
+            f"by our own fraud model (fraud_probability={proba:.4f} >= threshold "
+            f"{state.threshold:.4f}). This tool only assists disputes for transactions the "
+            "system itself believes are legitimate -- the real 'friendly fraud' chargeback-"
+            "defense use case. Drafting a defense for a system-flagged transaction would help "
+            "evade fraud detection, which this project will not do.",
+        )
+
+    contributions = state.explainer.explain_one(df)
+    letter = draft_dispute_letter(
+        transaction_id=payload.transaction.transaction_id or "N/A",
+        amount=payload.transaction.amount,
+        currency=payload.currency,
+        transaction_date=payload.transaction_date,
+        top_contributors=[vars(c) for c in contributions],
+        merchant_name=payload.merchant_name,
+    )
+    return ChargebackDraftOut(
+        transaction_id=payload.transaction.transaction_id,
+        fraud_probability=proba,
+        threshold_used=state.threshold,
+        letter=letter,
+        model_version=state.metadata["model_version"],
     )

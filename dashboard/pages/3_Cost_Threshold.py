@@ -1,8 +1,11 @@
 import plotly.graph_objects as go
 import streamlit as st
 
-from fraud_risk.cost.cost_model import select_optimal_threshold, cost_flag_none, cost_flag_all
+from fraud_risk.cost.cost_model import select_optimal_threshold, cost_flag_none, cost_flag_all, total_cost
+from fraud_risk.evaluation.metrics import classification_metrics
 from common import load_test_predictions, load_cost_config, require_artifacts
+
+NAIVE_THRESHOLD = 0.5
 
 st.set_page_config(page_title="Cost & Threshold Optimization", page_icon="💰", layout="wide")
 st.title("💰 Cost & Threshold Optimization")
@@ -85,6 +88,52 @@ if best_t_is_flag_none:
         "the false-positive cost outweighs the fraud losses being prevented. "
         "This is the threshold sweep correctly considering 'do nothing' as a "
         "candidate policy, not a bug."
+    )
+
+st.divider()
+st.subheader("Naive vs. cost-optimized: the $ difference")
+st.caption(
+    "Same model, same scores, same test set — the only difference is which "
+    "threshold gets shipped. 'Naive' is the textbook default (t = 0.5) most "
+    "tutorials stop at; 'cost-optimized' is the threshold that minimizes "
+    "the dollar-cost model above."
+)
+
+naive_cost = total_cost(y_true, amount, scores, NAIVE_THRESHOLD, cfg)
+naive_metrics = classification_metrics(y_true, scores, NAIVE_THRESHOLD)
+optimized_metrics = classification_metrics(y_true, scores, best_t)
+
+naive_col, optimized_col = st.columns(2)
+with naive_col:
+    st.markdown("#### 😐 Naive model &nbsp; (t = 0.50)")
+    st.metric("Total cost", f"${naive_cost:,.2f}")
+    st.metric("Precision", f"{naive_metrics['precision']:.1%}")
+    st.metric("Recall", f"{naive_metrics['recall']:.1%}")
+
+with optimized_col:
+    st.markdown(f"#### 🎯 Cost-optimized model &nbsp; (t = {'∞' if best_t_is_flag_none else f'{best_t:.3f}'})")
+    st.metric("Total cost", f"${best_cost:,.2f}", delta=f"{best_cost - naive_cost:,.2f}", delta_color="inverse")
+    st.metric("Precision", f"{optimized_metrics['precision']:.1%}")
+    st.metric("Recall", f"{optimized_metrics['recall']:.1%}")
+
+fig = go.Figure(
+    go.Bar(
+        x=["Naive (t=0.5)", "Cost-optimized"],
+        y=[naive_cost, best_cost],
+        marker_color=["#C44E52", "#4C72B0"],
+        text=[f"${naive_cost:,.0f}", f"${best_cost:,.0f}"],
+        textposition="outside",
+    )
+)
+fig.update_layout(yaxis_title="Total expected cost ($) on TEST", height=350)
+st.plotly_chart(fig, use_container_width=True)
+
+if naive_cost > 0:
+    savings_pct = (naive_cost - best_cost) / naive_cost * 100
+    st.success(
+        f"Cost-aware thresholding saves **${naive_cost - best_cost:,.2f}** "
+        f"({savings_pct:.1f}%) over the naive default on this test set — "
+        "identical model, identical scores, only the threshold changed."
     )
 
 st.subheader("Cost vs. threshold")

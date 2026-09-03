@@ -44,6 +44,8 @@ class PaymentRiskEngine:
         self.cfg = cfg
         self._history: dict[str, list[float]] = defaultdict(list)
         self._seen_payers: set[str] = set()
+        self._ip_history: dict[str, list[float]] = defaultdict(list)
+        self._card_payers: dict[tuple, set[str]] = defaultdict(set)
 
     def score(self, payment: dict) -> RiskResult:
         cfg = self.cfg
@@ -104,6 +106,45 @@ class PaymentRiskEngine:
                             f"First-seen payer {payer_key} with amount {amount_major:,.0f}",
                         )
                     )
+
+        # Abuse-ring signals: a coordinated ring probing with one device/card
+        # against many synthetic identities shows up as either many payment
+        # attempts from one IP, or one card fingerprint reused across
+        # distinct payers -- neither is visible from a single transaction's
+        # amount/method alone, which is why these need cross-event state.
+        ip_address = (payment.get("notes") or {}).get("ip_address")
+        if ip_address:
+            ip_cfg = cfg["ip_velocity"]
+            ip_window = ip_cfg["window_seconds"]
+            self._ip_history[ip_address] = [
+                t for t in self._ip_history[ip_address] if created_at - t <= ip_window
+            ] + [created_at]
+            ip_attempts = len(self._ip_history[ip_address])
+            if ip_attempts > ip_cfg["max_attempts_before_flag"]:
+                triggered.append(
+                    TriggeredRule(
+                        "ip_velocity",
+                        ip_cfg["points"],
+                        f"{ip_attempts} payment attempts from IP {ip_address} within {ip_window}s",
+                    )
+                )
+
+        if card and payer_key:
+            # last4+network+issuer is an imperfect card fingerprint (the
+            # real card number/BIN is never exposed by Razorpay's API) but
+            # is the standard imprecise signal real fraud systems use when
+            # the full PAN isn't available.
+            card_fp = (card.get("last4"), card.get("network"), card.get("issuer"))
+            payers_for_card = self._card_payers[card_fp]
+            payers_for_card.add(payer_key)
+            if len(payers_for_card) > 1:
+                triggered.append(
+                    TriggeredRule(
+                        "card_fingerprint_reuse",
+                        cfg["card_fingerprint_reuse"]["points"],
+                        f"Card ...{card_fp[0]} ({card_fp[1]}) used by {len(payers_for_card)} distinct payers",
+                    )
+                )
 
         method_points = cfg["method_risk_points"].get(method, 0)
         if method_points:

@@ -17,6 +17,8 @@ CFG = {
     "international_card": {"points": 20},
     "velocity": {"window_seconds": 600, "max_attempts_before_flag": 3, "points": 30},
     "new_payer": {"amount_threshold": 20000, "points": 15},
+    "ip_velocity": {"window_seconds": 600, "max_attempts_before_flag": 3, "points": 35},
+    "card_fingerprint_reuse": {"points": 35},
     "method_risk_points": {"card": 5, "netbanking": 3, "wallet": 8, "upi": 2, "emi": 5},
     "odd_hour": {"start_hour_ist": 1, "end_hour_ist": 5, "points": 10},
     "decision_thresholds": {"medium": 30, "high": 55},
@@ -88,6 +90,48 @@ def test_new_payer_rule_fires_once_per_payer():
 
     assert "new_payer_high_amount" in {r.rule for r in first.triggered_rules}
     assert "new_payer_high_amount" not in {r.rule for r in second.triggered_rules}
+
+
+def test_ip_velocity_rule_triggers_across_different_payers():
+    # The whole point of an IP-based rule: distinct emails/contacts sharing
+    # one IP within the window should still trigger it, unlike the
+    # per-payer velocity rule which is keyed by payer, not IP.
+    engine = PaymentRiskEngine(CFG)
+    shared_ip = "203.0.113.7"
+    results = [
+        engine.score(_payment(amount=1000, method="upi", email=f"ring{i}@example.com", notes={"ip_address": shared_ip}))
+        for i in range(4)
+    ]
+    for r in results[:3]:
+        assert "ip_velocity" not in {rule.rule for rule in r.triggered_rules}
+    assert "ip_velocity" in {rule.rule for rule in results[3].triggered_rules}
+
+
+def test_ip_velocity_rule_ignored_when_no_ip_present():
+    engine = PaymentRiskEngine(CFG)
+    for i in range(5):
+        result = engine.score(_payment(amount=1000, method="upi", email=f"noip{i}@example.com"))
+    assert "ip_velocity" not in {rule.rule for rule in result.triggered_rules}
+
+
+def test_card_fingerprint_reuse_rule_triggers_on_second_distinct_payer():
+    engine = PaymentRiskEngine(CFG)
+    card = {"last4": "4242", "network": "Visa", "issuer": "HDFC"}
+    first = engine.score(_payment(amount=1000, method="card", email="alice@example.com", card=card))
+    second = engine.score(_payment(amount=1000, method="card", email="bob@example.com", card=card))
+
+    assert "card_fingerprint_reuse" not in {r.rule for r in first.triggered_rules}
+    assert "card_fingerprint_reuse" in {r.rule for r in second.triggered_rules}
+
+
+def test_card_fingerprint_reuse_rule_ignored_for_same_payer_repeat_use():
+    engine = PaymentRiskEngine(CFG)
+    card = {"last4": "4242", "network": "Visa", "issuer": "HDFC"}
+    first = engine.score(_payment(amount=1000, method="card", email="alice@example.com", card=card))
+    second = engine.score(_payment(amount=1000, method="card", email="alice@example.com", card=card))
+
+    assert "card_fingerprint_reuse" not in {r.rule for r in first.triggered_rules}
+    assert "card_fingerprint_reuse" not in {r.rule for r in second.triggered_rules}
 
 
 def test_odd_hour_rule_triggers_at_3am_ist():

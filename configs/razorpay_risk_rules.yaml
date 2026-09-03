@@ -28,6 +28,18 @@ new_payer:
   amount_threshold: 20000   # INR
   points: 15
 
+# Abuse-ring signals: coordinated identity abuse from one device/card,
+# rather than a single risky transaction. Requires the merchant to pass an
+# ip_address in the payment's `notes` (a real, supported Razorpay field for
+# merchant-supplied metadata -- IP isn't in the standard payment schema).
+ip_velocity:
+  window_seconds: 600
+  max_attempts_before_flag: 3
+  points: 35
+
+card_fingerprint_reuse:
+  points: 35
+
 method_risk_points:
   card: 5
   netbanking: 3
