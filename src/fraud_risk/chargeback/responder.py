@@ -18,10 +18,7 @@ api/main.py's /chargeback/draft-response endpoint.
 """
 import os
 
-import requests
-
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_MODEL = "openai/gpt-oss-120b"
+from fraud_risk.chargeback.groq_client import DEFAULT_MODEL, call_groq
 
 
 def _format_contributors(top_contributors: list[dict]) -> str:
@@ -61,20 +58,17 @@ Write a professional, factual dispute letter (250-350 words) that:
 
 Output only the letter text, no preamble or explanation."""
 
-    resp = requests.post(
-        GROQ_API_URL,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
+    response = call_groq(
+        api_key,
+        {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,
             "max_tokens": 900,
             "reasoning_effort": "low",
         },
-        timeout=30,
     )
-    resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"].strip()
+    content = response["choices"][0]["message"]["content"].strip()
     if not content:
         raise RuntimeError("Groq returned an empty completion for the dispute letter")
     return content

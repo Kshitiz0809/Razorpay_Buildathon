@@ -84,3 +84,79 @@ if st.button("Draft dispute letter"):
             body = resp.json()
             st.success(f"Drafted — fraud probability at the time: {body['fraud_probability']:.4f} (below threshold)")
             st.text_area("Dispute letter", value=body["letter"], height=400)
+
+st.divider()
+st.subheader("🤖 Investigate & Auto-Respond (agentic)")
+st.caption(
+    "Instead of drafting from the SHAP explanation alone, this gives the "
+    "LLM tools and lets it investigate before concluding: IP reputation "
+    "(real lookup via ip-api.com, with a local fallback), shipment "
+    "delivery status (simulated — no real order/carrier data exists for "
+    "this dataset), and this merchant's own prior-chargeback history for "
+    "the customer. The same high-risk refusal from above still applies, "
+    "checked in code before the agent ever runs — the model decides how "
+    "to investigate and whether to submit, never whether it's allowed to."
+)
+
+col1, col2, col3 = st.columns(3)
+inv_email = col1.text_input(
+    "Customer email", value="regular.customer@example.com", help="Try repeat.disputer@example.com for a red flag"
+)
+inv_ip = col2.text_input("Customer IP", value="8.8.8.8", help="Try a residential-looking IP for a different result")
+inv_tracking = col3.text_input("Tracking number", value="TRACK123456")
+
+allow_submit = st.checkbox(
+    "Allow the agent to auto-submit evidence to the mock endpoint if it concludes the dispute should be contested",
+    value=False,
+)
+if allow_submit:
+    st.caption(
+        "⚠️ With this checked, a click below can result in a real (simulated, local-only) "
+        "submission — logged to data/mock_services/submitted_disputes.json, never sent externally."
+    )
+
+if st.button("Investigate & Respond"):
+    payload = {
+        "transaction": {"transaction_id": example["transaction_id"], **example["raw_features"]},
+        "currency": currency,
+        "transaction_date": str(transaction_date),
+        "merchant_name": merchant_name,
+        "customer_email": inv_email or None,
+        "customer_ip": inv_ip or None,
+        "tracking_number": inv_tracking or None,
+        "allow_submit": allow_submit,
+    }
+    try:
+        resp = requests.post(
+            f"{API_BASE_URL}/chargeback/investigate",
+            json=payload,
+            headers={"X-API-Key": API_KEY},
+            timeout=60,
+        )
+    except requests.RequestException as e:
+        st.error(f"Could not reach the API ({e}). Is it running?")
+    else:
+        if resp.status_code == 400:
+            st.error(f"Refused: {resp.json()['detail']}")
+        elif resp.status_code == 503:
+            st.warning("Model not trained yet — run the training pipeline first.")
+        elif resp.status_code == 429:
+            st.warning("Rate limit hit (either this app's or Groq's) — wait a moment and try again.")
+        elif not resp.ok:
+            st.error(f"API error {resp.status_code}: {resp.text}")
+        else:
+            body = resp.json()
+            st.success(f"Investigated — fraud probability at the time: {body['fraud_probability']:.4f} (below threshold)")
+
+            st.markdown("**Investigation trace** (tools the agent chose to call, in order):")
+            for i, step in enumerate(body["investigation_trace"], start=1):
+                with st.expander(f"Step {i}: called `{step['tool']}`", expanded=True):
+                    st.json({"arguments": step["arguments"], "result": step["result"]})
+
+            if body["submitted"]:
+                st.success(f"✅ Evidence submitted (simulated) — confirmation `{body['submission_reference']}`")
+            elif allow_submit:
+                st.info("The agent investigated but chose not to submit.")
+
+            st.markdown("**Conclusion:**")
+            st.markdown(body["conclusion"])

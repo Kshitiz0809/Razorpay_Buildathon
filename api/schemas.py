@@ -63,3 +63,37 @@ class ChargebackDraftOut(_APIModel):
     threshold_used: float
     letter: str
     model_version: str
+
+
+class ChargebackInvestigateIn(BaseModel):
+    transaction: TransactionIn
+    currency: str = "USD"
+    transaction_date: str = Field(..., description="Human-readable date to reference in the letter, e.g. '2026-08-15'")
+    merchant_name: str = "the merchant"
+    customer_email: str | None = None
+    customer_ip: str | None = None
+    tracking_number: str | None = None
+    allow_submit: bool = Field(
+        False,
+        description=(
+            "If true, the agent may call the submit_dispute_evidence tool against the mock "
+            "endpoint as its final action. If false (default), it can only investigate and draft."
+        ),
+    )
+
+
+class ToolCallTrace(BaseModel):
+    tool: str
+    arguments: dict
+    result: dict
+
+
+class ChargebackInvestigateOut(_APIModel):
+    transaction_id: str | None
+    fraud_probability: float
+    threshold_used: float
+    investigation_trace: list[ToolCallTrace]
+    conclusion: str
+    submitted: bool
+    submission_reference: str | None
+    model_version: str

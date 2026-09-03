@@ -26,9 +26,11 @@ coherent system rather than three disconnected demos:
    of it), with velocity and card/IP-fingerprint-reuse rules purpose-built
    to catch coordinated identity abuse that no single transaction reveals.
    See "Live Razorpay integration" below.
-3. **Chargeback evidence responder** — drafts a dispute letter from the
-   exact same per-transaction SHAP explanation the fraud classifier already
-   produces, guarded so it only ever assists disputes for transactions the
+3. **Chargeback evidence responder** — a genuine tool-calling agent that
+   investigates (IP reputation, shipping status, prior chargeback history)
+   before drafting, and can autonomously submit evidence to a mock
+   endpoint as its own final action — a real auto-responder, not just a
+   text generator — guarded so it only ever runs on transactions the
    system itself scored as legitimate. See "Chargeback evidence responder"
    below.
 
@@ -78,30 +80,49 @@ score escalate statefully in real time).
 
 ## Chargeback evidence responder
 
-`POST /chargeback/draft-response` (`src/fraud_risk/chargeback/responder.py`,
-dashboard's [Chargeback Responder](dashboard/pages/6_Chargeback_Responder.py)
-page) takes a transaction and drafts a chargeback dispute letter from the
-exact same per-transaction SHAP explanation the Explainability page
-already computes — one explainability output feeding two features, not a
-second disconnected one.
+Two endpoints, both built from the same per-transaction SHAP explanation
+the Explainability page already computes — one explainability output
+feeding multiple features, not disconnected ones:
 
-**The guard that makes this defense-only, not just labeled that way:** the
-endpoint re-scores the transaction itself first, and refuses outright if
-the fraud model scored it at or above the flagging threshold —
+- **`POST /chargeback/draft-response`** — a single LLM call (Groq,
+  `openai/gpt-oss-120b`) drafts a dispute letter directly from the SHAP
+  explanation. Fast, cheap, no tool use. Nothing here submits anything —
+  a drafting aid for a human to review.
+- **`POST /chargeback/investigate`** (`src/fraud_risk/chargeback/agent.py`)
+  — a genuine tool-calling agent. The LLM investigates using three
+  read-only tools before concluding — `check_ip_reputation` (real lookup
+  via ip-api.com, local heuristic fallback if unreachable),
+  `check_shipping_status` (simulated — no real carrier integration or
+  order data exists for this dataset, and that's stated plainly rather
+  than dressed up as real), and `check_prior_chargebacks` (this project's
+  own local chargeback-history store). If the caller sets `allow_submit`,
+  the agent may call a fourth tool, `submit_dispute_evidence`, as its own
+  final action — a real closed-loop auto-responder, not just a text
+  generator, directly answering the brief's "auto-responder" framing.
+
+**The guard that makes both defense-only, not just labeled that way, is
+identical and lives in code, not in the LLM's judgment:** both endpoints
+re-score the transaction themselves first and refuse outright — before the
+LLM (or the agent loop) ever runs — if the fraud model scored it at or
+above the flagging threshold:
 
 ```
-Refusing to draft a dispute letter: this transaction was scored as
-high-risk by our own fraud model... This tool only assists disputes for
-transactions the system itself believes are legitimate.
+Refusing to investigate: this transaction was scored as high-risk by our
+own fraud model... This tool only assists disputes for transactions the
+system itself believes are legitimate.
 ```
 
 This is the real "friendly fraud" use case (a legitimate transaction the
-cardholder later disputes) — drafting a defense for a transaction the
-system itself flagged as fraud would mean helping evade detection, which
-this project will not do. The Chargeback Responder page lets you pick a
-"correctly flagged fraud" example specifically to watch this refusal fire.
-Text generation runs on Groq (`openai/gpt-oss-120b`); nothing here
-auto-submits a dispute — it's a drafting aid for a human to review.
+cardholder later disputes) — investigating or drafting a defense for a
+transaction the system itself flagged as fraud would mean helping evade
+detection, which this project will not do. The model decides *how* to
+investigate and *whether* to submit; it never decides whether it's
+*allowed* to run at all. The Chargeback Responder dashboard page lets you
+pick a "correctly flagged fraud" example specifically to watch this
+refusal fire, and a real submission (to a local mock endpoint —
+`src/fraud_risk/chargeback/mock_submission.py`, logged to
+`data/mock_services/submitted_disputes.json`, never sent to Razorpay or
+any real external system) shows the full agentic loop end to end.
 
 ## Why the numbers here are trustworthy, not just high
 
@@ -214,9 +235,10 @@ latency claims too, not just fraud metrics.
      │  api/  (FastAPI)                   │◄──│  dashboard/ (Streamlit)         │
      │  /health  /score  /explain         │HTTP│  Live Stream, Performance,      │
      │  /chargeback/draft-response        │  │  Cost/Threshold, Explain,        │
-     │  /webhook/razorpay/payment         │  │  Razorpay Live, Chargeback       │
-     │  /razorpay/recent-orders           │  │  Responder                       │
-     │  X-API-Key + rate limits (webhook: │  └───────────────────────────────┘
+     │  /chargeback/investigate (agent)   │  │  Razorpay Live, Chargeback       │
+     │  /webhook/razorpay/payment         │  │  Responder                       │
+     │  /razorpay/recent-orders           │  └───────────────────────────────┘
+     │  X-API-Key + rate limits (webhook: │
      │  Razorpay HMAC signature instead)  │
      └───────┬─────────────────────┬───────┘
              │ Basic Auth            │ chat completions
@@ -232,14 +254,17 @@ latency claims too, not just fraud metrics.
 ```
 src/fraud_risk/                Core package: data, features, models, cost, evaluation, explain
 src/fraud_risk/razorpay_integration/  Live Razorpay client, webhook signature verification, heuristic risk engine
-src/fraud_risk/chargeback/     Groq-backed chargeback dispute letter drafter
+src/fraud_risk/chargeback/     groq_client (shared, retrying), responder (single-shot draft),
+                                 agent (tool-calling investigator), tools (3 read-only investigation
+                                 tools), mock_submission (the 4th, write, tool)
 configs/                        train_config.yaml, cost_config.yaml, razorpay_risk_rules.yaml (all assumptions live here)
+data/mock_services/             chargeback_history.json (seed data, committed), submitted_disputes.json (runtime log, gitignored)
 api/                            FastAPI service (main, schemas, auth, rate_limit, dependencies, razorpay_router)
 dashboard/                      Streamlit multipage app (incl. Razorpay Live, Chargeback Responder pages)
 scripts/                        eda.py, download_data.ps1, run_pipeline.ps1, benchmark_latency.py,
                                  build_curated_examples.py, simulate_razorpay_webhook.py, seed_razorpay_test_orders.py
 tests/                          pytest suite (schema, leakage, cost model, feature engineering, API contract,
-                                 Razorpay integration, rate limiting, chargeback safety guard)
+                                 Razorpay integration, rate limiting, chargeback safety guards, agent tools, Groq retry)
 reports/                        Generated: evaluation_report.json, figures/, test_predictions.parquet, curated_examples.json
 models/champion/                Generated: serialized model bundle + metadata (gitignored except structure)
 ```
@@ -326,6 +351,26 @@ Returns `400` if the fraud model itself scored the transaction above its
 flagging threshold — the endpoint refuses to draft a defense for a
 transaction it believes is fraud, by design.
 
+For the full agentic investigator instead of a single-shot draft:
+
+```
+POST /chargeback/investigate
+{
+  "transaction": { ... same as above ... },
+  "currency": "USD", "transaction_date": "2026-08-15", "merchant_name": "Acme Retail Pvt Ltd",
+  "customer_email": "regular.customer@example.com",
+  "customer_ip": "8.8.8.8",
+  "tracking_number": "TRACK123456",
+  "allow_submit": false
+}
+```
+
+Same refusal guard as above, run before the agent loop starts. Set
+`allow_submit: true` to let the agent call the mock evidence-submission
+tool as its own final action if it concludes the dispute should be
+contested — response includes `investigation_trace` (every tool call and
+result, in order), `submitted`, and `submission_reference`.
+
 ### 6. Docker (optional, for one-command reproducibility)
 
 ```
@@ -345,26 +390,31 @@ never requires an image rebuild.
 Schema validation, split-leakage assertions, cost-model correctness against
 hand-computed values, feature-engineering correctness, the Razorpay
 heuristic risk engine (including abuse-ring rules) and webhook signature
-verification (pure logic, no network calls), the rate limiter, the
-chargeback-responder safety guard (mocked model, no real LLM call), and
-FastAPI contract tests (`/score`/`/explain` auto-skip until a model has
-been trained; `/health` and the Razorpay webhook run regardless, since they
-don't depend on the trained model).
+verification (pure logic, no network calls), the rate limiter, both
+chargeback safety guards (mocked model, no real LLM call), the three
+investigation tools and the Groq retry/error-surfacing logic (mocked
+network, deterministic), and FastAPI contract tests (`/score`/`/explain`
+auto-skip until a model has been trained; `/health` and the Razorpay
+webhook run regardless, since they don't depend on the trained model).
 
 ## Defense-only scope
 
 This system scores and explains individual transactions. It deliberately
 does **not** expose: global feature importances, training data, raw model
-internals, or an unauthenticated scoring oracle — `/score`, `/explain`, and
-`/chargeback/draft-response` require an API key, are rate-limited per key
-(`api/rate_limit.py`; 120/min, 20/min, 10/min respectively, in-memory —
-specifically so `/explain` can't be hammered at scale to probe the model's
-decision boundary), and `/explain` returns only the top-6 contributing
-features for the specific transaction scored, never the full feature
-vector or model weights. `/chargeback/draft-response` additionally
-re-scores the transaction and refuses outright for anything above the
-flagging threshold — see "Chargeback evidence responder" above. The
-Razorpay webhook endpoint's authentication is the HMAC signature itself
+internals, or an unauthenticated scoring oracle — `/score`, `/explain`,
+`/chargeback/draft-response`, and `/chargeback/investigate` require an API
+key and are rate-limited per key (`api/rate_limit.py`; 120/min, 20/min,
+10/min, 5/min respectively, in-memory — specifically so `/explain` can't
+be hammered at scale to probe the model's decision boundary, and so the
+multi-call agent loop fails fast with a clear 429 instead of piling up
+requests behind Groq's own rate limit). `/explain` returns only the top-6
+contributing features for the specific transaction scored, never the full
+feature vector or model weights. Both chargeback endpoints re-score the
+transaction themselves and refuse outright for anything above the
+flagging threshold, in code, before any LLM runs — see "Chargeback
+evidence responder" above; the agent decides how to investigate and
+whether to submit, never whether it's allowed to run. The Razorpay
+webhook endpoint's authentication is the HMAC signature itself
 (exactly how Razorpay's own servers would call it — they never send our
 internal API key), verified against the raw request body before anything
 else runs. See `MODEL_CARD.md` for the full scope statement.

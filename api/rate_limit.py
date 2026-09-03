@@ -38,6 +38,12 @@ class RateLimiter:
 score_limiter = RateLimiter(max_requests=120, window_seconds=60)
 explain_limiter = RateLimiter(max_requests=20, window_seconds=60)
 chargeback_limiter = RateLimiter(max_requests=10, window_seconds=60)
+# The agentic investigation loop makes several LLM calls per request (one
+# per tool-call round) against Groq's own per-organization tokens-per-minute
+# budget -- a much tighter local limit here means this app fails fast with a
+# clear 429 instead of piling up requests that would just queue behind
+# Groq's own rate limit anyway.
+investigate_limiter = RateLimiter(max_requests=5, window_seconds=60)
 
 
 def rate_limit_score(x_api_key: str | None = Header(default=None)) -> None:
@@ -50,3 +56,7 @@ def rate_limit_explain(x_api_key: str | None = Header(default=None)) -> None:
 
 def rate_limit_chargeback(x_api_key: str | None = Header(default=None)) -> None:
     chargeback_limiter.check(x_api_key or "anonymous")
+
+
+def rate_limit_investigate(x_api_key: str | None = Header(default=None)) -> None:
+    investigate_limiter.check(x_api_key or "anonymous")

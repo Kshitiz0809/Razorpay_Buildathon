@@ -1,0 +1,22 @@
+{
+  "regular.customer@example.com": {
+    "prior_chargebacks": 1,
+    "account_age_days": 320,
+    "notes": "One prior dispute 8 months ago, resolved in the merchant's favor."
+  },
+  "buyer@example.com": {
+    "prior_chargebacks": 0,
+    "account_age_days": 540,
+    "notes": "Long-standing customer, no prior disputes."
+  },
+  "repeat.disputer@example.com": {
+    "prior_chargebacks": 4,
+    "account_age_days": 45,
+    "notes": "Four disputes in the last 45 days across different merchants -- serial-disputer pattern."
+  },
+  "new.suspicious@example.com": {
+    "prior_chargebacks": 0,
+    "account_age_days": 2,
+    "notes": "Account created 2 days before this transaction."
+  }
+}
