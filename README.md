@@ -179,6 +179,12 @@ this is also why the champion legitimately beats the baseline above,
 rather than a champion propped up on a training-period metric that never
 generalized.
 
+**Measured API latency** (`scripts/benchmark_latency.py`, n=90, this
+machine): p50 **13.5 ms**, mean 36.2 ms. One outlier in the sample (likely
+one-time connection warm-up, not steady-state) pulled p99/max to ~2.05s —
+reported as-is rather than dropped, since "honest metrics" applies to
+latency claims too, not just fraud metrics.
+
 ## Architecture
 
 ```

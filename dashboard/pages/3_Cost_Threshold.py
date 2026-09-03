@@ -144,7 +144,15 @@ if not best_t_is_flag_none:
     fig.add_vline(x=best_t, line_dash="dash", line_color="red", annotation_text=f"optimal t={best_t:.3f}")
 fig.add_hline(y=naive_none, line_dash="dot", line_color="gray", annotation_text="flag nothing")
 fig.add_hline(y=naive_all, line_dash="dot", line_color="orange", annotation_text="flag everything")
-fig.update_layout(xaxis_title="Threshold", yaxis_title="Total expected cost ($) on TEST", height=450)
+# Log scale: "flag everything" costs orders of magnitude more than the
+# useful operating range, and on a linear axis that squashes the
+# actually-interesting part of the curve flat.
+fig.update_layout(
+    xaxis_title="Threshold",
+    yaxis_title="Total expected cost ($, log scale) on TEST",
+    yaxis_type="log",
+    height=450,
+)
 st.plotly_chart(fig, use_container_width=True)
 
 st.info(

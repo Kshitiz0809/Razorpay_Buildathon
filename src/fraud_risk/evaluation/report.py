@@ -106,7 +106,12 @@ def _write_figures(y_test, scores, amount, threshold, cost_cfg, metrics):
     if threshold != float("inf"):
         ax.axvline(threshold, color="red", linestyle="--", label=f"selected t={threshold:.3f}")
     ax.set_xlabel("Threshold")
-    ax.set_ylabel("Total expected cost ($)")
+    ax.set_ylabel("Total expected cost ($, log scale)")
+    # Log scale: the "flag almost everything" region near threshold=0 costs
+    # orders of magnitude more than the useful operating range, and on a
+    # linear axis that single extreme squashes the actually-interesting
+    # part of the curve flat.
+    ax.set_yscale("log")
     ax.set_title("Cost vs. threshold (TEST)")
     ax.legend()
     fig.tight_layout()
