@@ -56,7 +56,12 @@ def main():
     examples = []
     for category, rows in categories.items():
         for _, row in rows.iterrows():
-            raw_row = row[FEATURE_COLUMNS].to_frame().T
+            # `row` is sliced from `merged`, a mixed-dtype frame (floats +
+            # the string transaction_id column), so a row-wise Series over
+            # it is coerced to object dtype -- .astype(float) is required
+            # here or downstream numpy ufuncs (np.sin in FeatureEngineer)
+            # choke on boxed Python floats inside an object array.
+            raw_row = row[FEATURE_COLUMNS].astype(float).to_frame().T
             contributions = explainer.explain_one(raw_row)
             # Full raw feature vector, shaped exactly like the API's
             # TransactionIn schema, so the dashboard can replay this exact

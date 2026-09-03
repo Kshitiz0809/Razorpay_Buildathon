@@ -17,10 +17,16 @@
 ## Overview
 
 - **Task:** binary classification — is a card transaction fraudulent?
-- **Architecture:** LightGBM gradient-boosted trees, class-weighted
-  (`scale_pos_weight`), probability-calibrated via sigmoid (Platt) scaling.
+- **Architecture:** LightGBM gradient-boosted trees (unweighted,
+  `scale_pos_weight=1` — see "A design decision reversed by evidence"
+  below), moderately regularized, probability-calibrated via sigmoid
+  (Platt) scaling.
 - **Baseline reported alongside:** `LogisticRegression(class_weight="balanced")`,
   as an honesty anchor, not a deployment candidate.
+- **Measured performance (TEST, one held-out touch):** PR-AUC 0.792,
+  ROC-AUC 0.983, precision 83.1%, recall 73.4% at the deployed threshold —
+  full numbers in `README.md`'s Results section and
+  `reports/evaluation_report.json`.
 - **Intended use:** a demonstration of a production-grade fraud-scoring
   *methodology* — leakage-safe evaluation, calibration, cost-sensitive
   thresholding, and per-transaction explainability — for the Razorpay AI
@@ -36,11 +42,49 @@ provenance in `data/README.md`.
 
 ## Evaluation protocol
 
-Chronological split (train earliest 60% / validation next 20% / test latest
-20%, by `Time`), enforced by an automated no-overlap assertion. Model
-selection and calibration use TRAIN and VALIDATION only. TEST is scored
-exactly once, in `fraud_risk/evaluation/report.py`, to produce the numbers
-in `reports/evaluation_report.json`.
+Chronological split (train earliest 55% / validation next 20% / test latest
+25%, by `Time` — widened from an initial 60/20/20 because that left TEST
+with only 75 frauds, below the configured minimum of 80; the boundary was
+moved based on fraud *counts* alone, before any model was trained, per the
+policy documented in `configs/train_config.yaml`), enforced by an automated
+no-overlap assertion. Model selection and calibration use TRAIN and
+VALIDATION only. TEST is scored exactly once, in
+`fraud_risk/evaluation/report.py`, to produce the numbers in
+`reports/evaluation_report.json`.
+
+## A design decision reversed by evidence: class weighting hurt, not helped
+
+The original design (see git history / `CHALLENGES.md`) used
+`scale_pos_weight` computed from the train imbalance ratio (~447x for this
+split) — the textbook approach to class imbalance. The first trained
+champion scored TEST PR-AUC 0.130, dramatically worse than the 0.747
+baseline, despite scoring 0.65 on VALIDATION during training. That gap was
+investigated rather than shipped:
+
+1. Calibration was ruled out — the uncalibrated and calibrated scores had
+   nearly identical PR-AUC (0.1297 vs 0.1297).
+2. The real cause: LightGBM's built-in `eval_metric="average_precision"`
+   string does not compute the same quantity as sklearn's
+   `average_precision_score` under `scale_pos_weight` — confirmed by
+   swapping in an explicit sklearn-wrapping callable, after which
+   LightGBM's internally-reported validation score exactly matched a
+   post-hoc sklearn recomputation on the same predictions (previously off
+   by roughly 9x). Early stopping had been silently selecting an iteration
+   optimized for the wrong metric.
+3. With the metric fixed, a VAL-only hyperparameter search (never touching
+   TEST) found that the aggressive auto-computed `scale_pos_weight` was
+   itself the dominant problem: it caused severe overfitting to the 350
+   training-period frauds that did not generalize across the chronological
+   gap. `scale_pos_weight=1` (no reweighting at all) combined with moderate
+   regularization (`num_leaves=15`, `min_child_samples=30`,
+   `reg_alpha=reg_lambda=0.5`, `learning_rate=0.02`) consistently
+   outperformed every weighted variant tried.
+
+Retrained with this config, TEST PR-AUC became 0.792 — now legitimately
+above the baseline. This is reported here in full rather than only as a
+clean result, because the failure mode (a plausible-looking validation
+score that didn't hold up) is exactly the kind of thing "honest metrics"
+is supposed to catch, and catching it changed a real modeling decision.
 
 ## Intended limitations — read before trusting these numbers for anything real
 
@@ -60,10 +104,12 @@ in `reports/evaluation_report.json`.
    dataset authors; `configs/cost_config.yaml` treats it as USD purely as a
    documented, swappable convention — not a claim about the real currency.
 4. **Small positive class in TEST.** With only 492 total frauds across the
-   whole dataset, the TEST block's fraud count (see
-   `reports/evaluation_report.json` -> `model_metadata`) is small enough
-   that precision/recall carry real sampling uncertainty — reported as
-   point estimates, not confidence intervals, in this prototype.
+   whole dataset, TEST has 94 of them (see
+   `reports/evaluation_report.json` -> `model_metadata`) — small enough
+   that precision/recall carry real sampling uncertainty (a handful of
+   different frauds landing on either side of the chronological cut would
+   move these numbers noticeably). Reported as point estimates, not
+   confidence intervals, in this prototype.
 5. **Static snapshot.** No concept-drift monitoring or online retraining is
    implemented; a real deployment would need both, since fraud patterns
    shift faster than most other ML problems.

@@ -30,12 +30,19 @@ def main():
     headers = {"X-API-Key": args.api_key}
     latencies_ms = []
 
-    for i in range(args.n):
-        start = time.perf_counter()
-        resp = requests.post(f"{args.base_url}/score", json=sample_payload(i), headers=headers, timeout=5)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        resp.raise_for_status()
-        latencies_ms.append(elapsed_ms)
+    # A persistent Session reuses the underlying TCP connection across
+    # requests (HTTP keep-alive) -- without it, requests.post() opens a
+    # fresh connection per call, and on this machine that connection-setup
+    # overhead dominated the measurement far more than actual scoring time.
+    with requests.Session() as session:
+        for i in range(args.n):
+            start = time.perf_counter()
+            resp = session.post(f"{args.base_url}/score", json=sample_payload(i), headers=headers, timeout=5)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            resp.raise_for_status()
+            latencies_ms.append(elapsed_ms)
+            if (i + 1) % 25 == 0:
+                print(f"  ...{i + 1}/{args.n}", flush=True)
 
     latencies_ms.sort()
     p50 = latencies_ms[len(latencies_ms) // 2]

@@ -12,7 +12,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from fraud_risk.config import REPORTS_DIR
+from fraud_risk.config import REPORTS_DIR, train_config
 from fraud_risk.data.load import load_raw_transactions
 from fraud_risk.data.split import chronological_split
 
@@ -26,7 +26,13 @@ def main():
     n_fraud = int(df["Class"].sum())
     fraud_rate = n_fraud / n
 
-    split = chronological_split(df)
+    cfg = train_config()
+    split = chronological_split(
+        df,
+        train_frac=cfg["split"]["train_frac"],
+        val_frac=cfg["split"]["val_frac"],
+        min_test_frauds=cfg["split"]["min_test_frauds"],
+    )
     block_counts = {
         "train": (len(split.train), int(split.train["Class"].sum())),
         "val": (len(split.val), int(split.val["Class"].sum())),
@@ -81,9 +87,9 @@ Generated from `data/raw/creditcard.csv`.
 
 | Block | Rows | Frauds | Fraud rate |
 |---|---|---|---|
-| Train (earliest 60%) | {block_counts['train'][0]:,} | {block_counts['train'][1]} | {block_counts['train'][1] / block_counts['train'][0]:.4%} |
-| Val (next 20%) | {block_counts['val'][0]:,} | {block_counts['val'][1]} | {block_counts['val'][1] / block_counts['val'][0]:.4%} |
-| Test (latest 20%) | {block_counts['test'][0]:,} | {block_counts['test'][1]} | {block_counts['test'][1] / block_counts['test'][0]:.4%} |
+| Train (earliest {cfg['split']['train_frac']:.0%}) | {block_counts['train'][0]:,} | {block_counts['train'][1]} | {block_counts['train'][1] / block_counts['train'][0]:.4%} |
+| Val (next {cfg['split']['val_frac']:.0%}) | {block_counts['val'][0]:,} | {block_counts['val'][1]} | {block_counts['val'][1] / block_counts['val'][0]:.4%} |
+| Test (latest {1 - cfg['split']['train_frac'] - cfg['split']['val_frac']:.0%}) | {block_counts['test'][0]:,} | {block_counts['test'][1]} | {block_counts['test'][1] / block_counts['test'][0]:.4%} |
 
 Each block's fraud count was checked against `min_test_frauds` in
 `configs/train_config.yaml` *before* any model was trained -- the split

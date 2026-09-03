@@ -1,8 +1,13 @@
 # Split ratios are fractions of rows after sorting by Time ascending.
+# test_frac is implicit (1 - train_frac - val_frac); shown here for
+# documentation. Widened from the original 60/20/20 to 55/20/25 because the
+# default left only 75 frauds in TEST (< min_test_frauds) -- this decision
+# was made purely from fraud counts at each candidate split (see
+# CHALLENGES.md), before any model was trained, per the policy below.
 split:
-  train_frac: 0.60
+  train_frac: 0.55
   val_frac: 0.20
-  test_frac: 0.20
+  test_frac: 0.25
   min_test_frauds: 80   # if the tail block has fewer, widen test_frac before touching any model
 
 seed: 42
@@ -13,18 +18,27 @@ logistic_baseline:
   max_iter: 1000
   class_weight: "balanced"
 
+# scale_pos_weight is a configured value, not auto-computed from the train
+# imbalance ratio -- an earlier version computed it as n_neg/n_pos (~447 for
+# this split), which is the textbook approach, but a VAL-only hyperparameter
+# search (see CHALLENGES.md) found it caused severe overfitting to the
+# handful of training-period frauds that did not generalize across the
+# chronological gap to VAL/TEST. scale_pos_weight=1 (i.e. no reweighting),
+# combined with the regularization below, generalized far better in that
+# same search -- an empirical result, not a rule of thumb, and it was found
+# using only VAL, never TEST.
 lightgbm_champion:
   n_estimators: 500
-  learning_rate: 0.05
-  num_leaves: 31
+  learning_rate: 0.02
+  num_leaves: 15
   max_depth: -1
-  min_child_samples: 20
+  min_child_samples: 30
   subsample: 0.8
   colsample_bytree: 0.8
-  reg_alpha: 0.0
-  reg_lambda: 0.0
+  reg_alpha: 0.5
+  reg_lambda: 0.5
+  scale_pos_weight: 1.0
   early_stopping_rounds: 50
-  cv_folds: 5
 
 calibration:
   method: "sigmoid"

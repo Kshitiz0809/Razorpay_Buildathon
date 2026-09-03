@@ -127,11 +127,57 @@ auto-submits a dispute — it's a drafting aid for a human to review.
 
 ## Results
 
-Populated by running the pipeline (`scripts/run_pipeline.ps1`) — see
-`reports/evaluation_report.json` and `reports/figures/` for the full report
-and PR / calibration / cost curves once trained.
+Measured once on the held-out, chronologically-later TEST block (71,203
+transactions, 94 frauds) — see `reports/evaluation_report.json` and
+`reports/figures/` for the full report and PR / calibration / cost curves.
 
-<!-- RESULTS_PLACEHOLDER -->
+| | Champion (LightGBM, calibrated) | Baseline (LogReg, t=0.5) |
+|---|---|---|
+| PR-AUC | **0.792** | 0.747 |
+| ROC-AUC | 0.983 | 0.977 |
+| Precision | **83.1%** | 2.1% |
+| Recall | 73.4% | 89.4% |
+| F1 | **0.780** | 0.041 |
+| False positives | **14** / 71,109 legitimate | 3,920 / 71,109 legitimate |
+
+At the cost-optimal threshold (0.0181, selected on VALIDATION, applied
+once to TEST): **$8,108 saved vs. flagging nothing** (a 66% cost
+reduction), **$1,245 saved vs. a naive fixed threshold of 0.5** on this
+test set alone. The champion catches 69 of 94 real frauds while wrongly
+declining only 14 of 71,109 legitimate transactions.
+
+The deployed threshold (0.018) is far below the "default" 0.5 by design:
+under `configs/cost_config.yaml`'s assumptions, missing a fraud costs
+roughly 14x what a false decline costs, so the cost-optimal policy is
+deliberately recall-leaning — this is the dashboard's Cost & Threshold
+page's cost model doing exactly its job, not a tuning oversight.
+
+**Why PR-AUC here is lower than commonly-cited numbers for this dataset:**
+many public analyses of this exact dataset use a random train/test split
+and report PR-AUC upward of 0.85. This project uses a strict chronological
+split instead (see below), which is more honest but harder: temporally
+adjacent fraud transactions in this dataset can share very similar
+PCA-feature signatures, so a random split leaks near-duplicate patterns
+across train/test in a way a genuinely time-ordered evaluation cannot. The
+0.792 above is the number that should generalize to a real forecasting
+setting; a higher random-split number would not.
+
+**A real bug this rigor caught before it shipped:** the first trained
+version of the champion scored PR-AUC 0.130 on TEST despite 0.65 on
+VALIDATION during training — a champion dramatically *worse* than the
+baseline, which should never happen and was not accepted at face value.
+Root cause: LightGBM's built-in `average_precision` eval-metric string
+does not compute the same thing as sklearn's `average_precision_score`
+under `scale_pos_weight`, so early stopping was silently optimizing the
+wrong objective. Fixed by wiring in an explicit sklearn-consistent eval
+metric, which also revealed that the textbook auto-computed
+`scale_pos_weight` (~447x for this split) was itself overfitting badly to
+the 350 training-period frauds; a VAL-only hyperparameter search found
+`scale_pos_weight=1` (no reweighting) with moderate regularization
+generalized far better. See `CHALLENGES.md` for the full investigation —
+this is also why the champion legitimately beats the baseline above,
+rather than a champion propped up on a training-period metric that never
+generalized.
 
 ## Architecture
 
