@@ -63,28 +63,35 @@ def _score_next_batch():
     if start >= end:
         st.session_state.autoplay = False
         return
-    for idx in range(start, end):
-        row = test_df.iloc[idx]
-        payload = _payload_from_row(row)
-        try:
-            resp = requests.post(
-                f"{API_BASE_URL}/score", json=payload, headers={"X-API-Key": API_KEY}, timeout=5
+    # A persistent Session reuses the underlying TCP connection across the
+    # whole batch (HTTP keep-alive) -- a bare requests.post() per call opens
+    # a fresh connection every time, and that per-connection setup overhead
+    # is what actually dominated a 100-row batch on this machine, not
+    # scoring time (same root cause as scripts/benchmark_latency.py, see
+    # CHALLENGES.md).
+    with requests.Session() as session:
+        for idx in range(start, end):
+            row = test_df.iloc[idx]
+            payload = _payload_from_row(row)
+            try:
+                resp = session.post(
+                    f"{API_BASE_URL}/score", json=payload, headers={"X-API-Key": API_KEY}, timeout=5
+                )
+                resp.raise_for_status()
+                result = resp.json()
+            except requests.RequestException as e:
+                st.error(f"Could not reach the API at {API_BASE_URL}. Is it running? ({e})")
+                st.session_state.autoplay = False
+                return
+            st.session_state.stream_log.append(
+                {
+                    "transaction_id": result["transaction_id"],
+                    "amount": payload["amount"],
+                    "fraud_probability": result["fraud_probability"],
+                    "flagged": result["is_flagged"],
+                    "actual_label": "fraud" if row[LABEL_COLUMN] == 1 else "legitimate",
+                }
             )
-            resp.raise_for_status()
-            result = resp.json()
-        except requests.RequestException as e:
-            st.error(f"Could not reach the API at {API_BASE_URL}. Is it running? ({e})")
-            st.session_state.autoplay = False
-            return
-        st.session_state.stream_log.append(
-            {
-                "transaction_id": result["transaction_id"],
-                "amount": payload["amount"],
-                "fraud_probability": result["fraud_probability"],
-                "flagged": result["is_flagged"],
-                "actual_label": "fraud" if row[LABEL_COLUMN] == 1 else "legitimate",
-            }
-        )
     st.session_state.stream_position = end
 
 
