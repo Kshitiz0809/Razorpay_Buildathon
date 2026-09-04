@@ -4,9 +4,19 @@ Deliberately lightweight (no Redis) for this prototype -- a real
 multi-instance deployment would back this with a shared store. Exists
 specifically so /explain (which reveals per-transaction feature
 contributions) can't be hammered to probe the model's decision boundary at
-scale -- a defense-only requirement, not a performance feature. /score and
-/chargeback/draft-response get looser limits for the same reason at lower
-severity.
+scale -- a defense-only requirement, not a performance feature.
+
+/score carries much less information per response (a probability and a
+flag, nothing feature-level) and its real-world equivalent -- a live
+transaction-scoring endpoint at an actual payment gateway -- needs to
+handle real transaction throughput, not a handful of requests a minute.
+An earlier, much tighter limit here (120/min) turned out to be the
+dashboard's own binding bottleneck once the Live Transaction Stream page's
+connection-reuse bug was fixed (see CHALLENGES.md): a single Autoplay
+session legitimately makes far more than 120 calls/min, and the dashboard
+shares one API key across all its own traffic. Loosened substantially so
+this app's own legitimate internal usage isn't rate-limited against
+itself, while still capping genuinely pathological volume.
 """
 import time
 from collections import defaultdict
@@ -35,7 +45,7 @@ class RateLimiter:
             self._hits[key] = recent
 
 
-score_limiter = RateLimiter(max_requests=120, window_seconds=60)
+score_limiter = RateLimiter(max_requests=6000, window_seconds=60)  # ~100/s sustained
 explain_limiter = RateLimiter(max_requests=20, window_seconds=60)
 chargeback_limiter = RateLimiter(max_requests=10, window_seconds=60)
 # The agentic investigation loop makes several LLM calls per request (one
