@@ -12,7 +12,7 @@ WORKDIR /app
 # stay small, so without it the container crashes on startup with
 # "OSError: libgomp.so.1: cannot open shared object file" the moment
 # joblib.load() imports lightgbm. Confirmed live on the first real
-# docker-compose run (see CHALLENGES.md).
+# docker-compose run.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*

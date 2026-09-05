@@ -47,9 +47,9 @@ risk team actually ships:
 - **Stage 1 — live now, in `src/fraud_risk/razorpay_integration/`.** A
   transparent, config-driven heuristic risk gate (`configs/razorpay_risk_rules.yaml`)
   wired to Razorpay's real API: `client.py` authenticates with real test
-  credentials against the real Orders API (verified live — see
-  `CHALLENGES.md`); `webhook.py` implements Razorpay's actual
-  HMAC-SHA256 `X-Razorpay-Signature` verification; the `/webhook/razorpay/payment`
+  credentials against the real Orders API (verified live); `webhook.py`
+  implements Razorpay's actual HMAC-SHA256 `X-Razorpay-Signature`
+  verification; the `/webhook/razorpay/payment`
   endpoint is exactly what a production integration would register with
   Razorpay. Because Razorpay deliberately keeps payment completion
   client-side only (PCI-DSS scope reduction — no backend can finish a
@@ -195,10 +195,9 @@ metric, which also revealed that the textbook auto-computed
 `scale_pos_weight` (~447x for this split) was itself overfitting badly to
 the 350 training-period frauds; a VAL-only hyperparameter search found
 `scale_pos_weight=1` (no reweighting) with moderate regularization
-generalized far better. See `CHALLENGES.md` for the full investigation —
-this is also why the champion legitimately beats the baseline above,
-rather than a champion propped up on a training-period metric that never
-generalized.
+generalized far better — this is also why the champion legitimately beats
+the baseline above, rather than a champion propped up on a
+training-period metric that never generalized.
 
 **Measured API latency** (`scripts/benchmark_latency.py`, n=90, this
 machine): p50 **13.5 ms**, mean 36.2 ms. One outlier in the sample (likely

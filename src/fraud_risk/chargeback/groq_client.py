@@ -37,7 +37,7 @@ def call_groq(api_key: str, payload: dict) -> dict:
         if resp.status_code >= 400:
             # Surface Groq's actual error body -- a bare "400 Client Error"
             # from raise_for_status() alone was not enough to diagnose a
-            # real issue found during development (see CHALLENGES.md).
+            # real issue found during development.
             raise RuntimeError(f"Groq API error {resp.status_code}: {resp.text}")
         return resp.json()
     raise last_error  # pragma: no cover -- loop always returns or raises above

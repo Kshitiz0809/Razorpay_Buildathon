@@ -12,7 +12,7 @@ transaction-scoring endpoint at an actual payment gateway -- needs to
 handle real transaction throughput, not a handful of requests a minute.
 An earlier, much tighter limit here (120/min) turned out to be the
 dashboard's own binding bottleneck once the Live Transaction Stream page's
-connection-reuse bug was fixed (see CHALLENGES.md): a single Autoplay
+connection-reuse bug was fixed: a single Autoplay
 session legitimately makes far more than 120 calls/min, and the dashboard
 shares one API key across all its own traffic. Loosened substantially so
 this app's own legitimate internal usage isn't rate-limited against

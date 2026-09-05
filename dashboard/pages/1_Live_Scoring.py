@@ -67,8 +67,7 @@ def _score_next_batch():
     # whole batch (HTTP keep-alive) -- a bare requests.post() per call opens
     # a fresh connection every time, and that per-connection setup overhead
     # is what actually dominated a 100-row batch on this machine, not
-    # scoring time (same root cause as scripts/benchmark_latency.py, see
-    # CHALLENGES.md).
+    # scoring time (same root cause as scripts/benchmark_latency.py).
     with requests.Session() as session:
         for idx in range(start, end):
             row = test_df.iloc[idx]

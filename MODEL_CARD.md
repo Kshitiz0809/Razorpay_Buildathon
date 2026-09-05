@@ -57,8 +57,7 @@ VALIDATION only. TEST is scored exactly once, in
 
 ## A design decision reversed by evidence: class weighting hurt, not helped
 
-The original design (see git history / `CHALLENGES.md`) used
-`scale_pos_weight` computed from the train imbalance ratio (~447x for this
+The original design used `scale_pos_weight` computed from the train imbalance ratio (~447x for this
 split) — the textbook approach to class imbalance. The first trained
 champion scored TEST PR-AUC 0.130, dramatically worse than the 0.747
 baseline, despite scoring 0.65 on VALIDATION during training. That gap was

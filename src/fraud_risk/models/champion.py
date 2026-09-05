@@ -11,7 +11,7 @@ def _sklearn_pr_auc_eval(y_true, y_pred):
 
     LightGBM's built-in string metric name "average_precision" does NOT
     match sklearn's average_precision_score under scale_pos_weight -- an
-    empirically-confirmed discrepancy (see CHALLENGES.md) that silently
+    empirically-confirmed discrepancy that silently
     picked a badly-overfit early-stopping iteration in an earlier version
     of this code (reported val "average_precision" of 0.65 while the
     actual sklearn PR-AUC on the same predictions was 0.07). Using this

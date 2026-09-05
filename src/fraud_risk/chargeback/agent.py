@@ -33,7 +33,7 @@ def _call_groq(messages: list[dict], tools: list[dict], api_key: str, model: str
             # enough headroom for that plus the model's own reasoning
             # overhead, and Groq truncated generation mid-argument, which
             # then failed to parse as JSON ("tool_use_failed") -- confirmed
-            # live during development, not a hypothetical. See CHALLENGES.md.
+            # live during development, not a hypothetical.
             "max_tokens": 2000,
             "reasoning_effort": "low",
         },

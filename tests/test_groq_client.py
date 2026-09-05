@@ -51,7 +51,7 @@ def test_non_retryable_error_surfaces_response_body_immediately(monkeypatch):
     # A genuine 400 is not retried (retrying a malformed request doesn't
     # help), and the raised error must carry the actual response body --
     # a bare "400 Client Error" with no body was not enough to diagnose a
-    # real issue found during development (see CHALLENGES.md).
+    # real issue found during development.
     bad_request = _fake_response(400, text='{"error": {"message": "invalid tool schema"}}')
     post_mock = MagicMock(return_value=bad_request)
     monkeypatch.setattr(groq_client.requests, "post", post_mock)
